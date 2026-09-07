@@ -1,0 +1,44 @@
+{
+  "name": "somebody-backend-server",
+  "version": "1.0.0",
+  "description": "SomeBody Native Mobile & Production Backend API Server (Fastify + Neon PostgreSQL)",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "type-check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
+    "@aws-sdk/s3-request-presigner": "^3.637.0",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/jwt": "^8.0.1",
+    "@fastify/rate-limit": "^9.1.0",
+    "@fastify/sensible": "^5.6.0",
+    "@fastify/websocket": "^10.0.1",
+    "@neondatabase/serverless": "^0.9.4",
+    "argon2": "^0.40.3",
+    "bullmq": "^5.12.9",
+    "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.33.0",
+    "fastify": "^4.28.1",
+    "fastify-plugin": "^4.5.1",
+    "fastify-socket.io": "^5.0.0",
+    "ioredis": "^5.4.1",
+    "nanoid": "^5.0.7",
+    "postgres": "^3.4.4",
+    "socket.io": "^4.7.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "drizzle-kit": "^0.24.0",
+    "socket.io-client": "^4.8.3",
+    "tsx": "^4.17.0",
+    "typescript": "^5.5.4"
+  },
+  "private": true
+}

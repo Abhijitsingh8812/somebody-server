@@ -1,0 +1,1 @@
+ALTER TABLE "device_tokens" ADD CONSTRAINT "uniq_user_push_token" UNIQUE("user_id","push_token");
