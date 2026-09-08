@@ -90,12 +90,19 @@ export class SocketService {
           let voiceDuration: number | null = null;
           let lastMessagePreview = '';
 
+          if (msgType === 'TEXT') {
+            if (!data.content || typeof data.content !== 'string') {
+              return socket.emit('error', { code: 'MESSAGE_INVALID', message: 'Message content required' });
+            }
+            await ChatsService.sendMessage(data.chatId, user.userId, data.content);
+            return;
+          }
+
           if (msgType === 'VOICE') {
             if (!data.storageObjectKey || typeof data.storageObjectKey !== 'string') {
               return socket.emit('error', { code: 'MESSAGE_INVALID', message: 'Voice message storage key is required' });
             }
 
-            // Key ownership validation: Must start with voice/<chatId>/
             const expectedPrefix = `voice/${data.chatId}/`;
             if (!data.storageObjectKey.startsWith(expectedPrefix)) {
               return socket.emit('error', { code: 'MESSAGE_INVALID', message: 'Invalid storage object key structure' });
@@ -108,23 +115,11 @@ export class SocketService {
             storageObjectKey = data.storageObjectKey;
             voiceDuration = Math.round(data.voiceDuration);
             lastMessagePreview = `🎤 Voice Note (${voiceDuration}s)`;
-          } else {
-            // TEXT Message validation
-            if (!data.content || typeof data.content !== 'string') {
-              return socket.emit('error', { code: 'MESSAGE_INVALID', message: 'Message content required' });
-            }
-            const trimmed = data.content.trim();
-            if (trimmed.length === 0 || trimmed.length > 2000) {
-              return socket.emit('error', { code: 'MESSAGE_INVALID', message: 'Message content invalid' });
-            }
-            content = trimmed;
-            lastMessagePreview = trimmed.slice(0, 100);
           }
 
           const db = getDb();
           const now = new Date();
 
-          // Fetch sender profile preferences to determine dynamic expiration time
           const senderProfiles = await db
             .select({ preferences: schema.profiles.preferences })
             .from(schema.profiles)
@@ -137,14 +132,13 @@ export class SocketService {
           const expirationMinutes = Number(senderPrefs.messageExpirationMinutes) || 60;
           const expiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
 
-          // Insert message into Neon
           const [insertedMsg] = await db
             .insert(schema.messages)
             .values({
               chatId: data.chatId,
               senderId: user.userId,
               messageType: msgType,
-              content,
+              content: null,
               storageObjectKey,
               voiceDuration,
               createdAt: now,
@@ -152,7 +146,6 @@ export class SocketService {
             })
             .returning();
 
-          // Update last message metadata on chat
           await db
             .update(schema.chats)
             .set({
@@ -193,7 +186,6 @@ export class SocketService {
           }
 
           if (!recipientInChat) {
-            // Fetch sender profile name safely
             const [senderProfile] = await db
               .select({ displayName: schema.profiles.displayName })
               .from(schema.profiles)
@@ -202,9 +194,7 @@ export class SocketService {
 
             const senderName = senderProfile?.displayName || 'SomeBody User';
             const notifTitle = senderName;
-            const notifBody = msgType === 'VOICE' 
-              ? '🎙️ Voice message received' 
-              : (content ? (content.length > 60 ? `${content.slice(0, 60)}...` : content) : 'Sent you a message');
+            const notifBody = '🎙️ Voice message received';
 
             NotificationService.sendPushNotification(otherUserId, notifTitle, notifBody, {
               type: 'chat',

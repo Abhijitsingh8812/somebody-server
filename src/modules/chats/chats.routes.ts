@@ -83,6 +83,40 @@ export default async function chatsRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // POST /api/v1/chats/:chatId/messages
+  fastify.post('/:chatId/messages', { preHandler: [authenticate] }, async (request, reply) => {
+    const jwtUser = request.user as JwtPayload;
+    const { chatId } = request.params as { chatId: string };
+    const body = request.body as { content?: string };
+
+    console.log(`[MESSAGE ROUTE HIT] POST /api/v1/chats/${chatId}/messages | Sender: ${jwtUser.userId}`);
+
+    if (!body?.content || typeof body.content !== 'string' || !body.content.trim()) {
+      console.warn(`[MESSAGE CREATE ERROR] Invalid or empty content for chat ${chatId}`);
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Message content is required and cannot be empty',
+        },
+      });
+    }
+
+    try {
+      const message = await ChatsService.sendMessage(chatId, jwtUser.userId, body.content);
+      console.log(`[MESSAGE CREATE SUCCESS] Created message ${message.id} in chat ${chatId}`);
+      return reply.status(201).send(message);
+    } catch (err: any) {
+      console.error(`[MESSAGE CREATE ERROR] Chat ${chatId} send failed:`, err.message);
+      const statusCode = err.message?.includes('blocked') || err.message?.includes('denied') || err.message?.includes('Access denied') ? 403 : 400;
+      return reply.status(statusCode).send({
+        error: {
+          code: 'MESSAGE_SEND_FAILED',
+          message: err.message || 'Failed to send message',
+        },
+      });
+    }
+  });
+
   // POST /api/v1/chats/:chatId/voice
   fastify.post(
     '/:chatId/voice',

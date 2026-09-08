@@ -86,6 +86,74 @@ export class ChatsService {
     };
   }
 
+  static async sendMessage(chatId: string, senderId: string, content: string) {
+    if (!content || typeof content !== 'string') {
+      throw new Error('Message content is required');
+    }
+    const trimmed = content.trim();
+    if (trimmed.length === 0 || trimmed.length > 2000) {
+      throw new Error('Message content must be between 1 and 2000 characters');
+    }
+
+    const chat = await this.getChatById(chatId, senderId);
+    const otherUserId = chat.userA === senderId ? chat.userB : chat.userA;
+
+    const isBlocked = await BlocksService.isBlockedPair(senderId, otherUserId);
+    if (isBlocked) {
+      throw new Error('Cannot send message to blocked user');
+    }
+
+    const db = getDb();
+    const now = new Date();
+
+    const senderProfiles = await db
+      .select({ preferences: schema.profiles.preferences })
+      .from(schema.profiles)
+      .where(eq(schema.profiles.userId, senderId))
+      .limit(1);
+
+    const senderPrefs = (senderProfiles[0]?.preferences && typeof senderProfiles[0].preferences === 'object')
+      ? (senderProfiles[0].preferences as Record<string, any>)
+      : {};
+    const expirationMinutes = Number(senderPrefs.messageExpirationMinutes) || 60;
+    const expiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
+
+    const [insertedMsg] = await db
+      .insert(schema.messages)
+      .values({
+        chatId,
+        senderId,
+        messageType: 'TEXT',
+        content: trimmed,
+        createdAt: now,
+        expiresAt,
+      })
+      .returning();
+
+    await db
+      .update(schema.chats)
+      .set({
+        lastMessage: trimmed.slice(0, 100),
+        lastMessageAt: now,
+        updatedAt: now,
+      })
+      .where(eq(schema.chats.id, chatId));
+
+    await SocketService.broadcastNewMessage(chatId, senderId, insertedMsg).catch(() => {});
+
+    return {
+      id: insertedMsg.id,
+      chatId: insertedMsg.chatId,
+      senderId: insertedMsg.senderId,
+      messageType: insertedMsg.messageType,
+      content: insertedMsg.content,
+      storageObjectKey: null,
+      voiceDuration: null,
+      createdAt: insertedMsg.createdAt.toISOString(),
+      expiresAt: insertedMsg.expiresAt.toISOString(),
+    };
+  }
+
   static async createOrGetChat(currentUserId: string, targetUserId: string) {
 
     const db = getDb();
