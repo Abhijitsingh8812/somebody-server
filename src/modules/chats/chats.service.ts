@@ -2,9 +2,92 @@ import { eq, or, and, gt, isNull, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../database';
 import { ConnectionsService } from '../connections/connections.service';
 import { BlocksService } from '../blocks/blocks.service';
+import { SocketService } from '../../services/realtime/socket.service';
 
 export class ChatsService {
+  static async uploadVoiceMessage(
+    chatId: string,
+    senderId: string,
+    durationSeconds: number,
+    mimeType: string,
+    audioBuffer: Buffer
+  ) {
+    const chat = await this.getChatById(chatId, senderId);
+
+    const otherUserId = chat.userA === senderId ? chat.userB : chat.userA;
+    const isBlocked = await BlocksService.isBlockedPair(senderId, otherUserId);
+    if (isBlocked) {
+      throw new Error('Cannot send message to blocked user');
+    }
+
+    const duration = Math.round(durationSeconds);
+    if (isNaN(duration) || duration < 1 || duration > 60) {
+      throw new Error('Voice duration must be between 1 and 60 seconds');
+    }
+
+    if (!audioBuffer || audioBuffer.length === 0) {
+      throw new Error('Audio payload is empty');
+    }
+
+    const db = getDb();
+    const now = new Date();
+
+    // Query sender profile preferences for message expiration time
+    const senderProfiles = await db
+      .select({ preferences: schema.profiles.preferences })
+      .from(schema.profiles)
+      .where(eq(schema.profiles.userId, senderId))
+      .limit(1);
+
+    const senderPrefs = (senderProfiles[0]?.preferences && typeof senderProfiles[0].preferences === 'object')
+      ? (senderProfiles[0].preferences as Record<string, any>)
+      : {};
+    const expirationMinutes = Number(senderPrefs.messageExpirationMinutes) || 60;
+    const expiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
+
+    const [insertedMsg] = await db
+      .insert(schema.messages)
+      .values({
+        chatId,
+        senderId,
+        messageType: 'VOICE',
+        content: null,
+        audioData: audioBuffer,
+        audioMimeType: mimeType || 'audio/m4a',
+        audioSizeBytes: audioBuffer.byteLength,
+        voiceDuration: duration,
+        createdAt: now,
+        expiresAt,
+      })
+      .returning();
+
+    await db
+      .update(schema.chats)
+      .set({
+        lastMessage: `🎤 Voice Note (${duration}s)`,
+        lastMessageAt: now,
+        updatedAt: now,
+      })
+      .where(eq(schema.chats.id, chatId));
+
+    await SocketService.broadcastNewMessage(chatId, senderId, insertedMsg).catch(() => {});
+
+
+    return {
+      id: insertedMsg.id,
+      chatId: insertedMsg.chatId,
+      senderId: insertedMsg.senderId,
+      messageType: insertedMsg.messageType,
+      content: null,
+      storageObjectKey: null,
+      voiceDuration: insertedMsg.voiceDuration,
+      createdAt: insertedMsg.createdAt.toISOString(),
+      expiresAt: insertedMsg.expiresAt.toISOString(),
+    };
+  }
+
   static async createOrGetChat(currentUserId: string, targetUserId: string) {
+
     const db = getDb();
 
     if (currentUserId === targetUserId) {

@@ -19,15 +19,8 @@ export const config = {
     refreshExpiryDays: 30,
   },
 
-  r2: {
-    endpoint: process.env.R2_ENDPOINT || '',
-    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
-    bucket: process.env.R2_BUCKET || 'somebody-media-vault',
-    publicDomain: process.env.R2_PUBLIC_DOMAIN || 'https://media.somebody.app',
-  },
-
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
   },
 };
+

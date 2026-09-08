@@ -3,7 +3,6 @@ import Redis from 'ioredis';
 import { lt, sql, and, isNull } from 'drizzle-orm';
 import { config } from '../../config';
 import { getDb, schema } from '../../database';
-import { StorageService } from '../storage/r2.service';
 import { SocketService } from '../realtime/socket.service';
 
 export class ExpirationWorker {
@@ -37,7 +36,7 @@ export class ExpirationWorker {
     }
   }
 
-  // Core Expiration Engine: Cleans DB records AND removes binary audio blobs from Cloudflare R2!
+  // Core Expiration Engine: Cleans DB records (BYTEA audio columns automatically purged in PostgreSQL)
   static async processExpiredMessages() {
     const db = getDb();
     const now = new Date();
@@ -57,25 +56,17 @@ export class ExpirationWorker {
       if (expired.length === 0) return;
 
       for (const msg of expired) {
-        // 2. If message is a voice note with a storage key, delete binary object from Cloudflare R2!
-        if (msg.messageType === 'VOICE' && msg.storageObjectKey) {
-          try {
-            await StorageService.deleteObject(msg.storageObjectKey);
-          } catch (err) {
-            console.error(`Failed to delete storage file for message ${msg.id}:`, err);
-          }
-        }
-
-        // 3. Delete database record from Neon PostgreSQL
+        // 2. Delete database record from Neon PostgreSQL (BYTEA column purged automatically)
         await db.delete(schema.messages).where(sql`${schema.messages.id} = ${msg.id}`);
 
-        // 4. Emit realtime event via Socket.IO
+        // 3. Emit realtime event via Socket.IO
         SocketService.emitToChat(msg.chatId, 'message:expired', { id: msg.id, chatId: msg.chatId });
       }
     } catch (err) {
       console.error('Error during message expiration job:', err);
     }
   }
+
 
   static async shutdown() {
     await this.worker?.close();

@@ -1,9 +1,15 @@
-import { pgTable, uuid, text, integer, timestamp, pgEnum, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, pgEnum, index, customType } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { chats } from './chats';
 import { users } from './users';
 
 export const messageTypeEnum = pgEnum('message_type', ['TEXT', 'VOICE']);
+
+const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+  dataType() {
+    return 'bytea';
+  },
+});
 
 export const messages = pgTable(
   'messages',
@@ -14,6 +20,9 @@ export const messages = pgTable(
     messageType: messageTypeEnum('message_type').default('TEXT').notNull(),
     content: text('content'),
     storageObjectKey: text('storage_object_key'),
+    audioData: bytea('audio_data'),
+    audioMimeType: text('audio_mime_type'),
+    audioSizeBytes: integer('audio_size_bytes'),
     voiceDuration: integer('voice_duration'),
     expiresAt: timestamp('expires_at', { withTimezone: true })
       .default(sql`(NOW() + INTERVAL '1 hour')`)
@@ -27,3 +36,4 @@ export const messages = pgTable(
     senderIdIdx: index('idx_messages_sender_id').on(table.senderId),
   })
 );
+

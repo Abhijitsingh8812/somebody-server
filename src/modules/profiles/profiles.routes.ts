@@ -48,6 +48,49 @@ export default async function profilesRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // GET /api/v1/profiles/preferences (Protected Route)
+  fastify.get('/preferences', { preHandler: [authenticate] }, async (request, reply) => {
+    const jwtUser = request.user as JwtPayload;
+    try {
+      const preferences = await ProfilesService.getPreferences(jwtUser.userId);
+      return reply.send(preferences);
+    } catch (err: any) {
+      return reply.status(500).send({
+        error: {
+          code: 'FETCH_PREFERENCES_FAILED',
+          message: err.message || 'Failed to fetch preferences',
+        },
+      });
+    }
+  });
+
+  // PATCH /api/v1/profiles/preferences (Protected Route)
+  fastify.patch('/preferences', { preHandler: [authenticate] }, async (request, reply) => {
+    const jwtUser = request.user as JwtPayload;
+    const body = request.body as Record<string, any>;
+
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Request body must be a valid JSON object',
+        },
+      });
+    }
+
+    try {
+      const updatedProfile = await ProfilesService.updatePreferences(jwtUser.userId, body);
+      return reply.send(updatedProfile);
+    } catch (err: any) {
+      return reply.status(400).send({
+        error: {
+          code: 'UPDATE_PREFERENCES_FAILED',
+          message: err.message || 'Failed to update preferences',
+        },
+      });
+    }
+  });
+
   // POST /api/v1/profiles/push-token (Register device push token)
   fastify.post('/push-token', { preHandler: [authenticate] }, async (request, reply) => {
     const jwtUser = request.user as JwtPayload;

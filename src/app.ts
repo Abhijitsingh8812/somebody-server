@@ -9,7 +9,7 @@ import usersRoutes from './modules/users/users.routes';
 import connectionsRoutes from './modules/connections/connections.routes';
 import blocksRoutes from './modules/blocks/blocks.routes';
 import chatsRoutes from './modules/chats/chats.routes';
-import { storageRoutes } from './modules/storage/storage.routes';
+import messagesRoutes from './modules/messages/messages.routes';
 import { SocketService } from './services/realtime/socket.service';
 import { config } from './config';
 import { getDb } from './database';
@@ -36,7 +36,16 @@ export const buildApp = () => {
     },
   });
 
-  // Health Check Endpoint (Safe public verification with DB connectivity)
+  // Raw binary parser for audio uploads
+  app.addContentTypeParser(
+    ['audio/m4a', 'audio/mp4', 'audio/aac', 'audio/mpeg', 'application/octet-stream'],
+    { parseAs: 'buffer' },
+    (req, body, done) => {
+      done(null, body);
+    }
+  );
+
+  // Health Check Endpoint
   app.get('/health', async (request, reply) => {
     let dbStatus = 'disconnected';
     try {
@@ -62,9 +71,9 @@ export const buildApp = () => {
   app.register(connectionsRoutes, { prefix: '/api/v1/connections' });
   app.register(blocksRoutes, { prefix: '/api/v1/blocks' });
   app.register(chatsRoutes, { prefix: '/api/v1/chats' });
-  app.register(storageRoutes, { prefix: '/api/v1/storage' });
+  app.register(messagesRoutes, { prefix: '/api/v1/messages' });
 
-  // Global Error Handler (Never leaks environment secrets or connection strings)
+  // Global Error Handler
   app.setErrorHandler((error, request, reply) => {
     app.log.error(error);
     const statusCode = error.statusCode || 500;

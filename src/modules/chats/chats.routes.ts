@@ -82,4 +82,53 @@ export default async function chatsRoutes(fastify: FastifyInstance) {
       });
     }
   });
+
+  // POST /api/v1/chats/:chatId/voice
+  fastify.post(
+    '/:chatId/voice',
+    {
+      bodyLimit: 1572864,
+      preHandler: [authenticate],
+    },
+    async (request, reply) => {
+
+      const jwtUser = request.user as JwtPayload;
+      const { chatId } = request.params as { chatId: string };
+      const durationHeader = request.headers['x-voice-duration'] as string;
+      const durationQuery = (request.query as any)?.duration;
+      const durationVal = parseFloat(durationHeader || durationQuery || '0');
+
+      const contentType = (request.headers['content-type'] || 'audio/m4a').split(';')[0].trim();
+      const bodyBuffer = request.body as Buffer;
+
+      if (!bodyBuffer || !Buffer.isBuffer(bodyBuffer)) {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_PAYLOAD',
+            message: 'Voice payload must be raw binary audio data',
+          },
+        });
+      }
+
+      try {
+        const message = await ChatsService.uploadVoiceMessage(
+          chatId,
+          jwtUser.userId,
+          durationVal,
+          contentType,
+          bodyBuffer
+        );
+        return reply.status(201).send(message);
+      } catch (err: any) {
+        const statusCode = err.message?.includes('blocked') || err.message?.includes('denied') ? 403 : 400;
+        return reply.status(statusCode).send({
+          error: {
+            code: 'VOICE_UPLOAD_FAILED',
+            message: err.message || 'Failed to upload voice message',
+          },
+        });
+      }
+    }
+  );
 }
+

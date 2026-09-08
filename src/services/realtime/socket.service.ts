@@ -123,7 +123,19 @@ export class SocketService {
 
           const db = getDb();
           const now = new Date();
-          const expiresAt = new Date(now.getTime() + 60 * 60 * 1000); // Default 1 hour lifetime
+
+          // Fetch sender profile preferences to determine dynamic expiration time
+          const senderProfiles = await db
+            .select({ preferences: schema.profiles.preferences })
+            .from(schema.profiles)
+            .where(eq(schema.profiles.userId, user.userId))
+            .limit(1);
+
+          const senderPrefs = (senderProfiles[0]?.preferences && typeof senderProfiles[0].preferences === 'object')
+            ? (senderProfiles[0].preferences as Record<string, any>)
+            : {};
+          const expirationMinutes = Number(senderPrefs.messageExpirationMinutes) || 60;
+          const expiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
 
           // Insert message into Neon
           const [insertedMsg] = await db
@@ -235,4 +247,62 @@ export class SocketService {
       this.io.to(`user:${userId}`).emit(event, payload);
     }
   }
+
+  static async broadcastNewMessage(chatId: string, senderId: string, insertedMsg: any) {
+    if (!this.io) return;
+    const io = this.io;
+    const db = getDb();
+    const [chat] = await db.select().from(schema.chats).where(eq(schema.chats.id, chatId)).limit(1);
+    if (!chat) return;
+
+    const otherUserId = chat.userA === senderId ? chat.userB : chat.userA;
+    const payload = {
+      id: insertedMsg.id,
+      chatId: insertedMsg.chatId,
+      senderId: insertedMsg.senderId,
+      messageType: insertedMsg.messageType,
+      content: insertedMsg.content,
+      storageObjectKey: insertedMsg.storageObjectKey || null,
+      voiceDuration: insertedMsg.voiceDuration,
+      createdAt: typeof insertedMsg.createdAt === 'string' ? insertedMsg.createdAt : insertedMsg.createdAt.toISOString(),
+      expiresAt: typeof insertedMsg.expiresAt === 'string' ? insertedMsg.expiresAt : insertedMsg.expiresAt.toISOString(),
+    };
+
+    io.to(`chat:${chatId}`).emit('message:new', payload);
+    io.to(`user:${otherUserId}`).emit('message:new', payload);
+
+    const chatRoom = io.sockets.adapter.rooms.get(`chat:${chatId}`);
+    const recipientUserRoom = io.sockets.adapter.rooms.get(`user:${otherUserId}`);
+
+    let recipientInChat = false;
+    if (chatRoom && recipientUserRoom) {
+      for (const socketId of recipientUserRoom) {
+        if (chatRoom.has(socketId)) {
+          recipientInChat = true;
+          break;
+        }
+      }
+    }
+
+    if (!recipientInChat) {
+      const [senderProfile] = await db
+        .select({ displayName: schema.profiles.displayName })
+        .from(schema.profiles)
+        .where(eq(schema.profiles.userId, senderId))
+        .limit(1);
+
+      const senderName = senderProfile?.displayName || 'SomeBody User';
+      const notifTitle = senderName;
+      const notifBody = insertedMsg.messageType === 'VOICE'
+        ? '🎙️ Voice message received'
+        : (insertedMsg.content ? (insertedMsg.content.length > 60 ? `${insertedMsg.content.slice(0, 60)}...` : insertedMsg.content) : 'Sent you a message');
+
+      NotificationService.sendPushNotification(otherUserId, notifTitle, notifBody, {
+        type: 'chat',
+        chatId: chatId,
+        senderId: senderId,
+      }).catch(() => {});
+    }
+  }
 }
+

@@ -15,8 +15,18 @@ export class ProfilesService {
     return await AuthService.getProfileByUserId(userId);
   }
 
+  static async getPreferences(userId: string): Promise<Record<string, any>> {
+    const profile = await this.getProfileByUserId(userId);
+    return profile.preferences || {};
+  }
+
+  static async updatePreferences(userId: string, incomingPreferences: Record<string, any>): Promise<UserProfileResponse> {
+    return await this.updateProfile(userId, { preferences: incomingPreferences });
+  }
+
   static async updateProfile(userId: string, input: UpdateProfileInput): Promise<UserProfileResponse> {
     const db = getDb();
+    const currentProfile = await this.getProfileByUserId(userId);
 
     // Input Validations
     const updates: Record<string, any> = {
@@ -39,20 +49,48 @@ export class ProfilesService {
     }
 
     if (input.avatarUrl !== undefined) {
-      if (input.avatarUrl && typeof input.avatarUrl === 'string') {
-        // Validate avatar reference: must be presigned Cloudflare R2 path or HTTPS URL
-        if (!input.avatarUrl.startsWith('http://') && !input.avatarUrl.startsWith('https://') && !input.avatarUrl.startsWith('avatars/')) {
+      if (input.avatarUrl && typeof input.avatarUrl === 'string' && input.avatarUrl.trim().length > 0) {
+        const url = input.avatarUrl.trim();
+        // Validate avatar reference: must be HTTPS/HTTP URL, base64 Data URL, relative path, or valid storage object key
+        const isHttpUrl = url.startsWith('http://') || url.startsWith('https://');
+        const isDataUrl = url.startsWith('data:image/');
+        const isRelativeUrl = url.startsWith('/');
+        const isObjectKey = /^[a-zA-Z0-9_-]+(\/[a-zA-Z0-9_.-]+)+$/.test(url);
+
+        if (!isHttpUrl && !isDataUrl && !isRelativeUrl && !isObjectKey) {
           throw new Error('Invalid avatar URL or object key format');
         }
+        updates.avatarUrl = url;
+      } else {
+        updates.avatarUrl = null;
       }
-      updates.avatarUrl = input.avatarUrl || null;
     }
 
     if (input.preferences !== undefined) {
-      if (typeof input.preferences !== 'object' || Array.isArray(input.preferences)) {
+      if (typeof input.preferences !== 'object' || Array.isArray(input.preferences) || input.preferences === null) {
         throw new Error('Preferences must be a valid JSON object');
       }
-      updates.preferences = input.preferences;
+
+      // Safely merge existing preferences with incoming preferences
+      const existingPrefs = (currentProfile.preferences && typeof currentProfile.preferences === 'object')
+        ? currentProfile.preferences
+        : {};
+
+      const mergedPreferences = {
+        ...existingPrefs,
+        ...input.preferences,
+      };
+
+      // Validate messageExpirationMinutes if specified
+      if (mergedPreferences.messageExpirationMinutes !== undefined) {
+        const minutes = Number(mergedPreferences.messageExpirationMinutes);
+        if (![15, 30, 60].includes(minutes)) {
+          throw new Error('messageExpirationMinutes must be one of: 15, 30, or 60');
+        }
+        mergedPreferences.messageExpirationMinutes = minutes;
+      }
+
+      updates.preferences = mergedPreferences;
     }
 
     await db
