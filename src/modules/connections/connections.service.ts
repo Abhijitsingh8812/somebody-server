@@ -272,4 +272,45 @@ export class ConnectionsService {
 
     return rows.length > 0;
   }
+
+  /**
+   * Returns the current relationship status between currentUserId and targetUserId.
+   * Used by the Search screen to render the correct action button.
+   */
+  static async getRelationshipStatus(
+    currentUserId: string,
+    targetUserId: string
+  ): Promise<{ status: 'NOT_CONNECTED' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'CONNECTED'; connectionId: string | null }> {
+    const db = getDb();
+
+    const [conn] = await db
+      .select()
+      .from(schema.connections)
+      .where(
+        or(
+          and(eq(schema.connections.requesterId, currentUserId), eq(schema.connections.recipientId, targetUserId)),
+          and(eq(schema.connections.requesterId, targetUserId), eq(schema.connections.recipientId, currentUserId))
+        )
+      )
+      .limit(1);
+
+    if (!conn) {
+      return { status: 'NOT_CONNECTED', connectionId: null };
+    }
+
+    if (conn.status === 'ACCEPTED') {
+      return { status: 'CONNECTED', connectionId: conn.id };
+    }
+
+    if (conn.status === 'PENDING') {
+      if (conn.requesterId === currentUserId) {
+        return { status: 'REQUEST_SENT', connectionId: conn.id };
+      } else {
+        return { status: 'REQUEST_RECEIVED', connectionId: conn.id };
+      }
+    }
+
+    // REJECTED — treat as not connected (allow re-request)
+    return { status: 'NOT_CONNECTED', connectionId: null };
+  }
 }
