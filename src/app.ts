@@ -45,6 +45,21 @@ export const buildApp = () => {
     }
   );
 
+  // Hardened JSON body parser: tolerates empty bodies (returns {}) instead of
+  // throwing "Body cannot be empty when content-type is application/json".
+  // This protects bodyless action POSTs (e.g. accept/reject) from misbehaving clients.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    if (!body || (body as string).trim() === '') {
+      return done(null, {});
+    }
+    try {
+      done(null, JSON.parse(body as string));
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
   // Health Check Endpoint
   app.get('/health', async (request, reply) => {
     let dbStatus = 'disconnected';
