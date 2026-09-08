@@ -29,6 +29,13 @@
       "when": 1788789285887,
       "tag": "0003_normal_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788862037783,
+      "tag": "0004_chilly_santa_claus",
+      "breakpoints": true
     }
   ]
 }

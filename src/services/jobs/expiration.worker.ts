@@ -1,6 +1,6 @@
 import { Queue, Worker, Job } from 'bullmq';
 import Redis from 'ioredis';
-import { lt, sql, and, isNull } from 'drizzle-orm';
+import { lt, sql, and, isNull, isNotNull } from 'drizzle-orm';
 import { config } from '../../config';
 import { getDb, schema } from '../../database';
 import { SocketService } from '../realtime/socket.service';
@@ -48,6 +48,7 @@ export class ExpirationWorker {
         .from(schema.messages)
         .where(
           and(
+            isNotNull(schema.messages.expiresAt),
             lt(schema.messages.expiresAt, now),
             isNull(schema.messages.expiredAt)
           )

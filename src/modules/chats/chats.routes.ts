@@ -83,6 +83,24 @@ export default async function chatsRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // POST /api/v1/chats/:chatId/read
+  fastify.post('/:chatId/read', { preHandler: [authenticate] }, async (request, reply) => {
+    const jwtUser = request.user as JwtPayload;
+    const { chatId } = request.params as { chatId: string };
+
+    try {
+      const result = await ChatsService.markMessagesAsRead(chatId, jwtUser.userId);
+      return reply.send(result);
+    } catch (err: any) {
+      return reply.status(400).send({
+        error: {
+          code: 'MARK_READ_FAILED',
+          message: err.message || 'Failed to mark messages as read',
+        },
+      });
+    }
+  });
+
   // POST /api/v1/chats/:chatId/messages
   fastify.post('/:chatId/messages', { preHandler: [authenticate] }, async (request, reply) => {
     const jwtUser = request.user as JwtPayload;

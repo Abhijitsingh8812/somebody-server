@@ -21,7 +21,7 @@ export class MessagesService {
       throw err;
     }
 
-    if (message.expiresAt <= now || message.expiredAt !== null) {
+    if ((message.expiresAt && message.expiresAt <= now) || message.expiredAt !== null) {
       const err: any = new Error('Voice message has expired');
       err.statusCode = 410;
       err.code = 'EXPIRED';

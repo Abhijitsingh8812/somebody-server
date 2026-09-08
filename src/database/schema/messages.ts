@@ -24,9 +24,9 @@ export const messages = pgTable(
     audioMimeType: text('audio_mime_type'),
     audioSizeBytes: integer('audio_size_bytes'),
     voiceDuration: integer('voice_duration'),
-    expiresAt: timestamp('expires_at', { withTimezone: true })
-      .default(sql`(NOW() + INTERVAL '1 hour')`)
-      .notNull(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    expirationMinutes: integer('expiration_minutes'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
     expiredAt: timestamp('expired_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -34,6 +34,7 @@ export const messages = pgTable(
     chatCreatedIdx: index('idx_messages_chat_created').on(table.chatId, table.createdAt),
     expiresAtIdx: index('idx_messages_expires_at').on(table.expiresAt),
     senderIdIdx: index('idx_messages_sender_id').on(table.senderId),
+    chatReadIdx: index('idx_messages_chat_read').on(table.chatId, table.readAt),
   })
 );
 

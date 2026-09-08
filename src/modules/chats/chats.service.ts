@@ -43,7 +43,6 @@ export class ChatsService {
       ? (senderProfiles[0].preferences as Record<string, any>)
       : {};
     const expirationMinutes = Number(senderPrefs.messageExpirationMinutes) || 60;
-    const expiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
 
     const [insertedMsg] = await db
       .insert(schema.messages)
@@ -56,8 +55,10 @@ export class ChatsService {
         audioMimeType: mimeType || 'audio/m4a',
         audioSizeBytes: audioBuffer.byteLength,
         voiceDuration: duration,
+        readAt: null,
+        expirationMinutes,
+        expiresAt: null,
         createdAt: now,
-        expiresAt,
       })
       .returning();
 
@@ -72,7 +73,6 @@ export class ChatsService {
 
     await SocketService.broadcastNewMessage(chatId, senderId, insertedMsg).catch(() => {});
 
-
     return {
       id: insertedMsg.id,
       chatId: insertedMsg.chatId,
@@ -81,8 +81,10 @@ export class ChatsService {
       content: null,
       storageObjectKey: null,
       voiceDuration: insertedMsg.voiceDuration,
+      readAt: null,
+      expirationMinutes: insertedMsg.expirationMinutes,
+      expiresAt: null,
       createdAt: insertedMsg.createdAt.toISOString(),
-      expiresAt: insertedMsg.expiresAt.toISOString(),
     };
   }
 
@@ -116,7 +118,6 @@ export class ChatsService {
       ? (senderProfiles[0].preferences as Record<string, any>)
       : {};
     const expirationMinutes = Number(senderPrefs.messageExpirationMinutes) || 60;
-    const expiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
 
     const [insertedMsg] = await db
       .insert(schema.messages)
@@ -125,8 +126,10 @@ export class ChatsService {
         senderId,
         messageType: 'TEXT',
         content: trimmed,
+        readAt: null,
+        expirationMinutes,
+        expiresAt: null,
         createdAt: now,
-        expiresAt,
       })
       .returning();
 
@@ -149,9 +152,70 @@ export class ChatsService {
       content: insertedMsg.content,
       storageObjectKey: null,
       voiceDuration: null,
+      readAt: null,
+      expirationMinutes: insertedMsg.expirationMinutes,
+      expiresAt: null,
       createdAt: insertedMsg.createdAt.toISOString(),
-      expiresAt: insertedMsg.expiresAt.toISOString(),
     };
+  }
+
+  static async markMessagesAsRead(chatId: string, currentUserId: string) {
+    const db = getDb();
+    await this.getChatById(chatId, currentUserId);
+
+    // Find incoming unread messages in this chat
+    const unreadMessages = await db
+      .select()
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.chatId, chatId),
+          sql`${schema.messages.senderId} != ${currentUserId}`,
+          isNull(schema.messages.readAt),
+          isNull(schema.messages.expiredAt)
+        )
+      );
+
+    if (unreadMessages.length === 0) {
+      return { chatId, updatedMessages: [] };
+    }
+
+    const updatedList: Array<{ id: string; readAt: string; expiresAt: string }> = [];
+
+    for (const msg of unreadMessages) {
+      const readAt = new Date();
+      const expMins = Number(msg.expirationMinutes) || 60;
+      const expiresAt = new Date(readAt.getTime() + expMins * 60 * 1000);
+
+      // Atomic UPDATE to enforce idempotency
+      const [updated] = await db
+        .update(schema.messages)
+        .set({
+          readAt,
+          expiresAt,
+        })
+        .where(
+          and(
+            eq(schema.messages.id, msg.id),
+            isNull(schema.messages.readAt)
+          )
+        )
+        .returning();
+
+      if (updated) {
+        updatedList.push({
+          id: updated.id,
+          readAt: updated.readAt!.toISOString(),
+          expiresAt: updated.expiresAt!.toISOString(),
+        });
+      }
+    }
+
+    if (updatedList.length > 0) {
+      await SocketService.broadcastMessagesRead(chatId, currentUserId, updatedList).catch(() => {});
+    }
+
+    return { chatId, updatedMessages: updatedList };
   }
 
   static async createOrGetChat(currentUserId: string, targetUserId: string) {
@@ -246,14 +310,14 @@ export class ChatsService {
     // Verify participant
     await this.getChatById(chatId, userId);
 
-    // Query unexpired messages (expiresAt > NOW() AND expiredAt IS NULL)
+    // Query unexpired messages (expiresAt IS NULL OR expiresAt > NOW())
     const messageRows = await db
       .select()
       .from(schema.messages)
       .where(
         and(
           eq(schema.messages.chatId, chatId),
-          gt(schema.messages.expiresAt, now),
+          or(isNull(schema.messages.expiresAt), gt(schema.messages.expiresAt, now)),
           isNull(schema.messages.expiredAt)
         )
       )
@@ -267,8 +331,10 @@ export class ChatsService {
       content: m.content,
       storageObjectKey: m.storageObjectKey,
       voiceDuration: m.voiceDuration,
+      readAt: m.readAt ? m.readAt.toISOString() : null,
+      expirationMinutes: m.expirationMinutes,
+      expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,
       createdAt: m.createdAt.toISOString(),
-      expiresAt: m.expiresAt.toISOString(),
     }));
   }
 

@@ -163,8 +163,10 @@ export class SocketService {
             content: insertedMsg.content,
             storageObjectKey: insertedMsg.storageObjectKey,
             voiceDuration: insertedMsg.voiceDuration,
+            readAt: insertedMsg.readAt ? insertedMsg.readAt.toISOString() : null,
+            expirationMinutes: insertedMsg.expirationMinutes,
+            expiresAt: insertedMsg.expiresAt ? insertedMsg.expiresAt.toISOString() : null,
             createdAt: insertedMsg.createdAt.toISOString(),
-            expiresAt: insertedMsg.expiresAt.toISOString(),
           };
 
           // Broadcast to chat room & recipient user room
@@ -238,6 +240,27 @@ export class SocketService {
     }
   }
 
+  static async broadcastMessagesRead(
+    chatId: string,
+    readUserId: string,
+    updatedMessages: Array<{ id: string; readAt: string; expiresAt: string }>
+  ) {
+    if (!this.io || updatedMessages.length === 0) return;
+    const io = this.io;
+    const db = getDb();
+    const [chat] = await db.select().from(schema.chats).where(eq(schema.chats.id, chatId)).limit(1);
+    if (!chat) return;
+
+    const otherUserId = chat.userA === readUserId ? chat.userB : chat.userA;
+    const payload = {
+      chatId,
+      messages: updatedMessages,
+    };
+
+    io.to(`chat:${chatId}`).emit('messages:read', payload);
+    io.to(`user:${otherUserId}`).emit('messages:read', payload);
+  }
+
   static async broadcastNewMessage(chatId: string, senderId: string, insertedMsg: any) {
     if (!this.io) return;
     const io = this.io;
@@ -253,9 +276,11 @@ export class SocketService {
       messageType: insertedMsg.messageType,
       content: insertedMsg.content,
       storageObjectKey: insertedMsg.storageObjectKey || null,
-      voiceDuration: insertedMsg.voiceDuration,
+      voiceDuration: insertedMsg.voiceDuration || null,
+      readAt: insertedMsg.readAt ? (typeof insertedMsg.readAt === 'string' ? insertedMsg.readAt : insertedMsg.readAt.toISOString()) : null,
+      expirationMinutes: insertedMsg.expirationMinutes,
+      expiresAt: insertedMsg.expiresAt ? (typeof insertedMsg.expiresAt === 'string' ? insertedMsg.expiresAt : insertedMsg.expiresAt.toISOString()) : null,
       createdAt: typeof insertedMsg.createdAt === 'string' ? insertedMsg.createdAt : insertedMsg.createdAt.toISOString(),
-      expiresAt: typeof insertedMsg.expiresAt === 'string' ? insertedMsg.expiresAt : insertedMsg.expiresAt.toISOString(),
     };
 
     io.to(`chat:${chatId}`).emit('message:new', payload);
